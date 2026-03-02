@@ -1,26 +1,21 @@
 import * as vscode from 'vscode';
 
-// Global reference to the status bar
 let statusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Lemonade Dashboard is now active!');
 
-    // 1. Initialize the Status Bar Item (Right aligned, priority 100)
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'lemonade.openSettings'; // Clicking it opens settings
+    statusBarItem.command = 'lemonade.openSettings'; 
     context.subscriptions.push(statusBarItem);
     
-    // Set initial state
     updateStatusBar(false);
     statusBarItem.show();
 
-    // 2. Register command to easily open your extension's settings
     context.subscriptions.push(vscode.commands.registerCommand('lemonade.openSettings', () => {
         vscode.commands.executeCommand('workbench.action.openSettings', 'lemonade');
     }));
 
-    // 3. Register the Webview Dashboard Provider
     const provider = new LemonadeDashboardProvider(context.extensionUri);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(LemonadeDashboardProvider.viewType, provider)
@@ -29,7 +24,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {}
 
-// Helper function to update the bottom Status Bar
 export function updateStatusBar(isConnected: boolean) {
     if (isConnected) {
         statusBarItem.text = '$(check) Lemonade: Connected';
@@ -42,19 +36,17 @@ export function updateStatusBar(isConnected: boolean) {
     }
 }
 
-// Helper to dynamically read user settings
 export function getLemonadeConfig() {
     const config = vscode.workspace.getConfiguration('lemonade');
     let rawUrl = config.get<string>('serverUrl') || 'http://127.0.0.1:8000';
     const token = config.get<string>('apiToken') || '';
 
-    // Clean up the URL
     rawUrl = rawUrl.trim().replace(/\/+$/, '');
     if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
         rawUrl = `http://${rawUrl}`; 
     }
 
-    const baseUrl = `${rawUrl}/api/v1`;
+    const apiUrl = `${rawUrl}/api/v1`;
     const headers: Record<string, string> = {
         'Content-Type': 'application/json'
     };
@@ -63,7 +55,7 @@ export function getLemonadeConfig() {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    return { baseUrl, headers };
+    return { rawUrl, apiUrl, headers };
 }
 
 class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
@@ -82,33 +74,35 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtmlForWebview();
 
         webviewView.webview.onDidReceiveMessage(async data => {
-            const { baseUrl, headers } = getLemonadeConfig();
+            const { rawUrl, apiUrl, headers } = getLemonadeConfig();
             
             switch (data.type) {
                 case 'openSettings':
-                    // This opens the VS Code settings tab filtered to 'lemonade'
                     vscode.commands.executeCommand('workbench.action.openSettings', 'lemonade');
                     break;
 
                 case 'getDashboardData':
                     try {
+                        const liveRes = await fetch(`${rawUrl}/live`, { headers });
+                        if (!liveRes.ok) throw new Error("Server not live");
+
                         const [sysRes, modelsRes, healthRes, statsRes] = await Promise.all([
-                            fetch(`${baseUrl}/system-info`, { headers }),
-                            fetch(`${baseUrl}/models`, { headers }),
-                            fetch(`${baseUrl}/health`, { headers }),
-                            fetch(`${baseUrl}/stats`, { headers })
+                            fetch(`${apiUrl}/system-info`, { headers }),
+                            fetch(`${apiUrl}/models`, { headers }),
+                            fetch(`${apiUrl}/health`, { headers }),
+                            fetch(`${apiUrl}/stats`, { headers })
                         ]);
 
-                        if (!healthRes.ok) throw new Error("Server offline");
                         updateStatusBar(true);
 
-                        const sysInfo = await sysRes.json();
-                        const modelsData = await modelsRes.json();
-                        const healthData = await healthRes.json();
+                        // FIX: Cast JSON responses to any to resolve TypeScript 'unknown' errors
+                        const sysInfo = (await sysRes.json()) as any;
+                        const modelsData = (await modelsRes.json()) as any;
+                        const healthData = (await healthRes.json()) as any;
                         
-                        let statsData = {};
+                        let statsData: any = {};
                         if (statsRes.ok) {
-                            statsData = await statsRes.json();
+                            statsData = (await statsRes.json()) as any;
                         }
 
                         webviewView.webview.postMessage({ 
@@ -116,6 +110,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             sysInfo: sysInfo, 
                             models: modelsData.data || [], 
                             loadedModel: healthData.model_loaded || null,
+                            healthStatus: healthData.status || 'unknown',
                             stats: statsData
                         });
                     } catch (e) {
@@ -127,7 +122,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                 case 'manageModelLifecycle':
                     try {
                         const endpoint = data.action === 'load' ? '/load' : '/unload';
-                        const res = await fetch(`${baseUrl}${endpoint}`, {
+                        const res = await fetch(`${apiUrl}${endpoint}`, {
                             method: 'POST',
                             headers,
                             body: JSON.stringify({ model: data.modelName })
@@ -142,7 +137,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                 case 'pullModel':
                     vscode.window.showInformationMessage(`Pulling model: ${data.modelName}...`);
                     try {
-                        const res = await fetch(`${baseUrl}/pull`, {
+                        const res = await fetch(`${apiUrl}/pull`, {
                             method: 'POST',
                             headers,
                             body: JSON.stringify({ model: data.modelName })
@@ -156,7 +151,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                 case 'deleteModel':
                     try {
-                        const res = await fetch(`${baseUrl}/delete`, {
+                        const res = await fetch(`${apiUrl}/delete`, {
                             method: 'POST',
                             headers,
                             body: JSON.stringify({ model: data.modelName })
@@ -165,6 +160,35 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         vscode.window.showInformationMessage(`Deleted ${data.modelName}`);
                     } catch (e) {
                         vscode.window.showErrorMessage(`Failed to delete ${data.modelName}`);
+                    }
+                    break;
+
+                case 'installBackend':
+                    vscode.window.showInformationMessage(`Installing recipe: ${data.recipeName}...`);
+                    try {
+                        const res = await fetch(`${apiUrl}/install`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({ recipe: data.recipeName })
+                        });
+                        if (!res.ok) throw new Error("Install failed");
+                        vscode.window.showInformationMessage(`Successfully installed ${data.recipeName}`);
+                    } catch (e) {
+                        vscode.window.showErrorMessage(`Failed to install ${data.recipeName}`);
+                    }
+                    break;
+
+                case 'uninstallBackend':
+                    try {
+                        const res = await fetch(`${apiUrl}/uninstall`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({ recipe: data.recipeName })
+                        });
+                        if (!res.ok) throw new Error("Uninstall failed");
+                        vscode.window.showInformationMessage(`Uninstalled ${data.recipeName}`);
+                    } catch (e) {
+                        vscode.window.showErrorMessage(`Failed to uninstall ${data.recipeName}`);
                     }
                     break;
             }
@@ -197,6 +221,8 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     
                     vscode-text-field, vscode-dropdown, vscode-button { width: 100%; margin-bottom: 10px; }
                     .button-group { display: flex; gap: 10px; }
+                    .recipe-list { font-size: 12px; margin-top: 10px; line-height: 1.6; }
+                    .recipe-item { display: inline-block; padding: 2px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px; margin: 2px; }
                 </style>
             </head>
             <body>
@@ -204,6 +230,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     <div class="status-badge">
                         <div id="statusDot" class="indicator offline"></div>
                         <span id="statusText">Disconnected</span>
+                        <vscode-badge id="liveBadge" appearance="secondary" style="margin-left: 4px;">/live fail</vscode-badge>
                     </div>
                     <vscode-badge id="speedBadge">0 t/s</vscode-badge>
                 </div>
@@ -211,6 +238,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                 <vscode-panels>
                     <vscode-panel-tab id="tab-1">System</vscode-panel-tab>
                     <vscode-panel-tab id="tab-2">Library</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-3">Backends</vscode-panel-tab>
 
                     <vscode-panel-view id="view-1" style="flex-direction: column;">
                         <div class="section">
@@ -230,13 +258,14 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                         <div class="section">
                             <h3>Memory Lifecycle</h3>
-                            <p style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground);">
-                                Loaded: <strong id="activeModel" style="color: var(--vscode-foreground);">None</strong>
-                            </p>
+                            <div style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground); display: flex; align-items: center;">
+                                <span>Loaded:&nbsp;</span>
+                                <strong id="activeModel" style="color: var(--vscode-foreground);">None</strong>
+                                <vscode-badge id="healthBadge" appearance="secondary" style="margin-left: auto;">/health: -</vscode-badge>
+                            </div>
                             <vscode-dropdown id="modelSelect">
                                 <vscode-option value="">Fetching models...</vscode-option>
                             </vscode-dropdown>
-                            
                             <div class="button-group">
                                 <vscode-button appearance="primary" onclick="manageModel('load')">Load to VRAM</vscode-button>
                                 <vscode-button appearance="secondary" onclick="manageModel('unload')">Unload</vscode-button>
@@ -265,32 +294,55 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             </vscode-button>
                         </div>
                     </vscode-panel-view>
+
+                    <vscode-panel-view id="view-3" style="flex-direction: column;">
+                        <div class="section">
+                            <h3>Manage Recipes</h3>
+                            <vscode-text-field id="recipeInput" placeholder="e.g., llamacpp:vulkan">
+                                Recipe Name
+                            </vscode-text-field>
+                            <div class="button-group">
+                                <vscode-button appearance="primary" onclick="installBackend()">Install</vscode-button>
+                                <vscode-button appearance="secondary" onclick="uninstallBackend()">Uninstall</vscode-button>
+                            </div>
+                        </div>
+
+                        <vscode-divider></vscode-divider>
+
+                        <div class="section">
+                            <h3>Supported Backend Types</h3>
+                            <div id="recipeContainer" class="recipe-list">
+                                Fetching system data...
+                            </div>
+                        </div>
+                    </vscode-panel-view>
                 </vscode-panels>
 
                 <script>
                     const vscode = acquireVsCodeApi();
 
-                    function requestDashboardData() {
-                        vscode.postMessage({ type: 'getDashboardData' });
-                    }
-
-                    function openSettings() {
-                        vscode.postMessage({ type: 'openSettings' });
-                    }
-
+                    function requestDashboardData() { vscode.postMessage({ type: 'getDashboardData' }); }
+                    function openSettings() { vscode.postMessage({ type: 'openSettings' }); }
+                    
                     function manageModel(action) {
                         const modelName = document.getElementById('modelSelect').value;
                         if (modelName) vscode.postMessage({ type: 'manageModelLifecycle', action, modelName });
                     }
-
                     function pullModel() {
                         const modelName = document.getElementById('pullInput').value;
                         if (modelName) vscode.postMessage({ type: 'pullModel', modelName });
                     }
-
                     function deleteModel() {
                         const modelName = document.getElementById('deleteSelect').value;
                         if (modelName) vscode.postMessage({ type: 'deleteModel', modelName });
+                    }
+                    function installBackend() {
+                        const recipeName = document.getElementById('recipeInput').value;
+                        if (recipeName) vscode.postMessage({ type: 'installBackend', recipeName });
+                    }
+                    function uninstallBackend() {
+                        const recipeName = document.getElementById('recipeInput').value;
+                        if (recipeName) vscode.postMessage({ type: 'uninstallBackend', recipeName });
                     }
 
                     window.addEventListener('message', event => {
@@ -299,6 +351,9 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         if (msg.type === 'renderDashboard') {
                             document.getElementById('statusDot').className = 'indicator online';
                             document.getElementById('statusText').innerText = 'Connected';
+                            document.getElementById('liveBadge').innerText = '/live OK';
+                            document.getElementById('liveBadge').style.background = 'var(--vscode-testing-iconPassed)';
+                            document.getElementById('liveBadge').style.color = '#fff';
                             
                             const tps = msg.stats?.tokens_per_second || 0;
                             document.getElementById('speedBadge').innerText = \`\${tps.toFixed(1)} t/s\`;
@@ -306,6 +361,15 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('tokensInOut').innerText = \`\${msg.stats?.input_tokens || 0} / \${msg.stats?.output_tokens || 0}\`;
 
                             document.getElementById('activeModel').innerText = msg.loadedModel || 'None';
+                            document.getElementById('healthBadge').innerText = \`/health: \${msg.healthStatus}\`;
+                            
+                            if (msg.healthStatus === 'ok') {
+                                document.getElementById('healthBadge').style.background = 'var(--vscode-testing-iconPassed)';
+                                document.getElementById('healthBadge').style.color = '#fff';
+                            } else {
+                                document.getElementById('healthBadge').style.background = 'var(--vscode-badge-background)';
+                                document.getElementById('healthBadge').style.color = 'var(--vscode-badge-foreground)';
+                            }
 
                             const modelOptions = msg.models.map(m => \`<vscode-option value="\${m.id}">\${m.id}</vscode-option>\`).join('') || '<vscode-option value="">No models found</vscode-option>';
                             document.getElementById('modelSelect').innerHTML = modelOptions;
@@ -317,19 +381,32 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                                 
                                 const hasNPU = msg.sysInfo.devices?.amd_npu?.available;
                                 document.getElementById('npuText').innerText = hasNPU ? 'Yes (AMD XDNA)' : 'None';
+
+                                if (msg.sysInfo.recipes) {
+                                    const recipeNames = Object.keys(msg.sysInfo.recipes);
+                                    document.getElementById('recipeContainer').innerHTML = recipeNames.length > 0 
+                                        ? recipeNames.map(r => \`<span class="recipe-item">\${r}</span>\`).join('')
+                                        : 'No recipe data found.';
+                                }
                             }
                         } else if (msg.type === 'serverOffline') {
                             document.getElementById('statusDot').className = 'indicator offline';
-                            
-                            // Make the disconnected text a clickable link to settings
                             document.getElementById('statusText').innerHTML = 'Disconnected (<a href="#" style="color: var(--vscode-textLink-foreground);" onclick="openSettings()">Configure</a>)';
                             
+                            document.getElementById('liveBadge').innerText = '/live fail';
+                            document.getElementById('liveBadge').style.background = 'var(--vscode-testing-iconFailed)';
+                            document.getElementById('liveBadge').style.color = '#fff';
+                            
+                            document.getElementById('healthBadge').innerText = '/health: offline';
+                            document.getElementById('healthBadge').style.background = 'var(--vscode-testing-iconFailed)';
+                            document.getElementById('healthBadge').style.color = '#fff';
+
                             document.getElementById('speedBadge').innerText = '0 t/s';
                             document.getElementById('activeModel').innerText = 'None';
                             
-                            // Reset model dropdowns so they don't hold stale data
-                            document.getElementById('modelSelect').innerHTML = '<vscode-option value="">Fetching models...</vscode-option>';
-                            document.getElementById('deleteSelect').innerHTML = '<vscode-option value="">Fetching models...</vscode-option>';
+                            document.getElementById('modelSelect').innerHTML = '<vscode-option value="">Fetching...</vscode-option>';
+                            document.getElementById('deleteSelect').innerHTML = '<vscode-option value="">Fetching...</vscode-option>';
+                            document.getElementById('recipeContainer').innerHTML = 'Offline';
                         }
                     });
                     
