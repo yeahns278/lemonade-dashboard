@@ -257,7 +257,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         <vscode-divider></vscode-divider>
 
                         <div class="section">
-                            <h3>Memory Lifecycle</h3>
+                            <h3>Large Language Model</h3>
                             <div style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground); display: flex; align-items: center;">
                                 <span>Loaded:&nbsp;</span>
                                 <strong id="activeModel" style="color: var(--vscode-foreground);">None</strong>
