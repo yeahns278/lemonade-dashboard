@@ -230,7 +230,6 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     <div class="status-badge">
                         <div id="statusDot" class="indicator offline"></div>
                         <span id="statusText">Disconnected</span>
-                        <vscode-badge id="liveBadge" appearance="secondary" style="margin-left: 4px;">/live fail</vscode-badge>
                     </div>
                     <vscode-badge id="speedBadge">0 t/s</vscode-badge>
                 </div>
@@ -261,7 +260,6 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             <div style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground); display: flex; align-items: center;">
                                 <span>Loaded:&nbsp;</span>
                                 <strong id="activeModel" style="color: var(--vscode-foreground);">None</strong>
-                                <vscode-badge id="healthBadge" appearance="secondary" style="margin-left: auto;">/health: -</vscode-badge>
                             </div>
                             <vscode-dropdown id="modelSelect">
                                 <vscode-option value="">Fetching models...</vscode-option>
@@ -351,9 +349,6 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         if (msg.type === 'renderDashboard') {
                             document.getElementById('statusDot').className = 'indicator online';
                             document.getElementById('statusText').innerText = 'Connected';
-                            document.getElementById('liveBadge').innerText = '/live OK';
-                            document.getElementById('liveBadge').style.background = 'var(--vscode-testing-iconPassed)';
-                            document.getElementById('liveBadge').style.color = '#fff';
                             
                             const tps = msg.stats?.tokens_per_second || 0;
                             document.getElementById('speedBadge').innerText = \`\${tps.toFixed(1)} t/s\`;
@@ -361,15 +356,6 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('tokensInOut').innerText = \`\${msg.stats?.input_tokens || 0} / \${msg.stats?.output_tokens || 0}\`;
 
                             document.getElementById('activeModel').innerText = msg.loadedModel || 'None';
-                            document.getElementById('healthBadge').innerText = \`/health: \${msg.healthStatus}\`;
-                            
-                            if (msg.healthStatus === 'ok') {
-                                document.getElementById('healthBadge').style.background = 'var(--vscode-testing-iconPassed)';
-                                document.getElementById('healthBadge').style.color = '#fff';
-                            } else {
-                                document.getElementById('healthBadge').style.background = 'var(--vscode-badge-background)';
-                                document.getElementById('healthBadge').style.color = 'var(--vscode-badge-foreground)';
-                            }
 
                             const modelOptions = msg.models.map(m => \`<vscode-option value="\${m.id}">\${m.id}</vscode-option>\`).join('') || '<vscode-option value="">No models found</vscode-option>';
                             document.getElementById('modelSelect').innerHTML = modelOptions;
@@ -393,14 +379,6 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('statusDot').className = 'indicator offline';
                             document.getElementById('statusText').innerHTML = 'Disconnected (<a href="#" style="color: var(--vscode-textLink-foreground);" onclick="openSettings()">Configure</a>)';
                             
-                            document.getElementById('liveBadge').innerText = '/live fail';
-                            document.getElementById('liveBadge').style.background = 'var(--vscode-testing-iconFailed)';
-                            document.getElementById('liveBadge').style.color = '#fff';
-                            
-                            document.getElementById('healthBadge').innerText = '/health: offline';
-                            document.getElementById('healthBadge').style.background = 'var(--vscode-testing-iconFailed)';
-                            document.getElementById('healthBadge').style.color = '#fff';
-
                             document.getElementById('speedBadge').innerText = '0 t/s';
                             document.getElementById('activeModel').innerText = 'None';
                             
