@@ -105,12 +105,16 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             statsData = (await statsRes.json()) as any;
                         }
 
-                        webviewView.webview.postMessage({ 
-                            type: 'renderDashboard', 
-                            sysInfo: sysInfo, 
-                            models: modelsData.data || [], 
+                        webviewView.webview.postMessage({
+                            type: 'renderDashboard',
+                            sysInfo: sysInfo,
+                            models: modelsData.data || [],
                             loadedModel: healthData.model_loaded || null,
                             healthStatus: healthData.status || 'unknown',
+                            serverVersion: healthData.version || null,
+                            websocketPort: healthData.websocket_port || null,
+                            allModelsLoaded: healthData.all_models_loaded || [],
+                            maxModels: healthData.max_models || {},
                             stats: statsData
                         });
                     } catch (e) {
@@ -241,26 +245,48 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                     <vscode-panel-view id="view-1" style="flex-direction: column;">
                         <div class="section">
+                            <h3>Server Info</h3>
+                            <div class="metric"><span class="metric-label">Version</span><span id="serverVersion" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">WebSocket Port</span><span id="wsPort" class="metric-value">-</span></div>
+                        </div>
+
+                        <div class="section">
                             <h3>Hardware Specs</h3>
                             <div class="metric"><span class="metric-label">Processor</span><span id="cpuText" class="metric-value">-</span></div>
                             <div class="metric"><span class="metric-label">Memory</span><span id="ramText" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">OS Version</span><span id="osVersion" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">OEM System</span><span id="oemSystem" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">BIOS Version</span><span id="biosVersion" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">CPU Max Clock</span><span id="cpuMaxClock" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">Power Setting</span><span id="powerSetting" class="metric-value">-</span></div>
                             <div class="metric"><span class="metric-label">NPU Detected</span><span id="npuText" class="metric-value">-</span></div>
+                        </div>
+
+                        <div class="section">
+                            <h3>Model Limits</h3>
+                            <div class="metric"><span class="metric-label">LLM Slots</span><span id="maxLlm" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">Embedding Slots</span><span id="maxEmbedding" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">Reranking Slots</span><span id="maxReranking" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">Audio Slots</span><span id="maxAudio" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">Image Slots</span><span id="maxImage" class="metric-value">-</span></div>
+                            <div class="metric"><span class="metric-label">TTS Slots</span><span id="maxTts" class="metric-value">-</span></div>
                         </div>
 
                         <div class="section">
                             <h3>Last Request Stats</h3>
                             <div class="metric"><span class="metric-label">Time to First Token</span><span id="ttft" class="metric-value">0s</span></div>
-                            <div class="metric"><span class="metric-label">Tokens (In / Out)</span><span id="tokensInOut" class="metric-value">0 / 0</span></div>
+                            <div class="metric"><span class="metric-label">Tokens Per Second</span><span id="tps" class="metric-value">0</span></div>
+                            <div class="metric"><span class="metric-label">Input Tokens</span><span id="inputTokens" class="metric-value">0</span></div>
+                            <div class="metric"><span class="metric-label">Output Tokens</span><span id="outputTokens" class="metric-value">0</span></div>
+                            <div class="metric"><span class="metric-label">Prompt Tokens</span><span id="promptTokens" class="metric-value">0</span></div>
+                            <div class="metric"><span class="metric-label">Decode Times</span><span id="decodeTimes" class="metric-value">-</span></div>
                         </div>
 
                         <vscode-divider></vscode-divider>
 
                         <div class="section">
-                            <h3>Large Language Model</h3>
-                            <div style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground); display: flex; align-items: center;">
-                                <span>Loaded:&nbsp;</span>
-                                <strong id="activeModel" style="color: var(--vscode-foreground);">None</strong>
-                            </div>
+                            <h3>Loaded Models</h3>
+                            <div id="loadedModelsList" style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground);">No models loaded</div>
                             <vscode-dropdown id="modelSelect">
                                 <vscode-option value="">Fetching models...</vscode-option>
                             </vscode-dropdown>
@@ -350,12 +376,46 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('statusDot').className = 'indicator online';
                             document.getElementById('statusText').innerText = 'Connected';
                             
+                            // Server info
+                            document.getElementById('serverVersion').innerText = msg.serverVersion || '-';
+                            document.getElementById('wsPort').innerText = msg.websocketPort ? \`\${msg.websocketPort}\` : '-';
+                            
+                            // Stats
                             const tps = msg.stats?.tokens_per_second || 0;
                             document.getElementById('speedBadge').innerText = \`\${tps.toFixed(1)} t/s\`;
                             document.getElementById('ttft').innerText = \`\${msg.stats?.time_to_first_token?.toFixed(2) || 0}s\`;
-                            document.getElementById('tokensInOut').innerText = \`\${msg.stats?.input_tokens || 0} / \${msg.stats?.output_tokens || 0}\`;
+                            document.getElementById('tps').innerText = \`\${tps.toFixed(1)}\`;
+                            document.getElementById('inputTokens').innerText = \`\${msg.stats?.input_tokens || 0}\`;
+                            document.getElementById('outputTokens').innerText = \`\${msg.stats?.output_tokens || 0}\`;
+                            document.getElementById('promptTokens').innerText = \`\${msg.stats?.prompt_tokens || 0}\`;
+                            
+                            const decodeTimes = msg.stats?.decode_token_times;
+                            document.getElementById('decodeTimes').innerText = decodeTimes && decodeTimes.length > 0
+                                ? decodeTimes.map(t => t.toFixed(3)).join(', ')
+                                : '-';
 
-                            document.getElementById('activeModel').innerText = msg.loadedModel || 'None';
+                            // Model limits
+                            if (msg.maxModels) {
+                                document.getElementById('maxLlm').innerText = msg.maxModels.llm ?? '-';
+                                document.getElementById('maxEmbedding').innerText = msg.maxModels.embedding ?? '-';
+                                document.getElementById('maxReranking').innerText = msg.maxModels.reranking ?? '-';
+                                document.getElementById('maxAudio').innerText = msg.maxModels.audio ?? '-';
+                                document.getElementById('maxImage').innerText = msg.maxModels.image ?? '-';
+                                document.getElementById('maxTts').innerText = msg.maxModels.tts ?? '-';
+                            }
+
+                            // Loaded models
+                            if (msg.allModelsLoaded && msg.allModelsLoaded.length > 0) {
+                                const loadedHtml = msg.allModelsLoaded.map(m =>
+                                    \`<div style="margin-bottom: 6px;">
+                                        <strong>\${m.model_name}</strong> (\${m.type})<br>
+                                        <span style="opacity: 0.7;">Device: \${m.device || 'N/A'} | Recipe: \${m.recipe || 'N/A'}</span>
+                                    </div>\`
+                                ).join('');
+                                document.getElementById('loadedModelsList').innerHTML = loadedHtml;
+                            } else {
+                                document.getElementById('loadedModelsList').innerText = 'No models loaded';
+                            }
 
                             const modelOptions = msg.models.map(m => \`<vscode-option value="\${m.id}">\${m.id}</vscode-option>\`).join('') || '<vscode-option value="">No models found</vscode-option>';
                             document.getElementById('modelSelect').innerHTML = modelOptions;
@@ -364,13 +424,18 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             if (msg.sysInfo) {
                                 document.getElementById('cpuText').innerText = msg.sysInfo['Processor'] || 'Unknown CPU';
                                 document.getElementById('ramText').innerText = msg.sysInfo['Physical Memory'] || 'Unknown';
+                                document.getElementById('osVersion').innerText = msg.sysInfo['OS Version'] || '-';
+                                document.getElementById('oemSystem').innerText = msg.sysInfo['OEM System'] || '-';
+                                document.getElementById('biosVersion').innerText = msg.sysInfo['BIOS Version'] || '-';
+                                document.getElementById('cpuMaxClock').innerText = msg.sysInfo['CPU Max Clock'] || '-';
+                                document.getElementById('powerSetting').innerText = msg.sysInfo['Windows Power Setting'] || '-';
                                 
                                 const hasNPU = msg.sysInfo.devices?.amd_npu?.available;
                                 document.getElementById('npuText').innerText = hasNPU ? 'Yes (AMD XDNA)' : 'None';
 
                                 if (msg.sysInfo.recipes) {
                                     const recipeNames = Object.keys(msg.sysInfo.recipes);
-                                    document.getElementById('recipeContainer').innerHTML = recipeNames.length > 0 
+                                    document.getElementById('recipeContainer').innerHTML = recipeNames.length > 0
                                         ? recipeNames.map(r => \`<span class="recipe-item">\${r}</span>\`).join('')
                                         : 'No recipe data found.';
                                 }
@@ -379,8 +444,31 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('statusDot').className = 'indicator offline';
                             document.getElementById('statusText').innerHTML = 'Disconnected (<a href="#" style="color: var(--vscode-textLink-foreground);" onclick="openSettings()">Configure</a>)';
                             
+                            // Reset all fields
+                            document.getElementById('serverVersion').innerText = '-';
+                            document.getElementById('wsPort').innerText = '-';
                             document.getElementById('speedBadge').innerText = '0 t/s';
-                            document.getElementById('activeModel').innerText = 'None';
+                            document.getElementById('ttft').innerText = '0s';
+                            document.getElementById('tps').innerText = '0';
+                            document.getElementById('inputTokens').innerText = '0';
+                            document.getElementById('outputTokens').innerText = '0';
+                            document.getElementById('promptTokens').innerText = '0';
+                            document.getElementById('decodeTimes').innerText = '-';
+                            document.getElementById('maxLlm').innerText = '-';
+                            document.getElementById('maxEmbedding').innerText = '-';
+                            document.getElementById('maxReranking').innerText = '-';
+                            document.getElementById('maxAudio').innerText = '-';
+                            document.getElementById('maxImage').innerText = '-';
+                            document.getElementById('maxTts').innerText = '-';
+                            document.getElementById('loadedModelsList').innerText = 'No models loaded';
+                            document.getElementById('cpuText').innerText = '-';
+                            document.getElementById('ramText').innerText = '-';
+                            document.getElementById('osVersion').innerText = '-';
+                            document.getElementById('oemSystem').innerText = '-';
+                            document.getElementById('biosVersion').innerText = '-';
+                            document.getElementById('cpuMaxClock').innerText = '-';
+                            document.getElementById('powerSetting').innerText = '-';
+                            document.getElementById('npuText').innerText = '-';
                             
                             document.getElementById('modelSelect').innerHTML = '<vscode-option value="">Fetching...</vscode-option>';
                             document.getElementById('deleteSelect').innerHTML = '<vscode-option value="">Fetching...</vscode-option>';
