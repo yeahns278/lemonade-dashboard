@@ -61,6 +61,7 @@ export function getLemonadeConfig() {
 class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'lemonadeDashboard';
     private _view?: vscode.WebviewView;
+    private _lastLoadedModel: string | null = null;
 
     constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -101,6 +102,8 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         const modelsData = (await modelsRes.json()) as any;
                         const healthData = (await healthRes.json()) as any;
                         
+                        this._lastLoadedModel = healthData.model_loaded || null;
+
                         let statsData: any = {};
                         if (statsRes.ok) {
                             statsData = (await statsRes.json()) as any;
@@ -119,6 +122,23 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             stats: statsData,
                             healthData: healthData
                         });
+
+                        // Fetch latest version from GitHub to compare
+                        try {
+                            const ghRes = await fetch('https://api.github.com/repos/lemonade-sdk/lemonade/releases/latest', {
+                                headers: { 'User-Agent': 'Lemonade-VSCode-Extension' }
+                            });
+                            if (ghRes.ok) {
+                                const ghData = (await ghRes.json()) as any;
+                                const latestVersion = ghData.tag_name;
+                                webviewView.webview.postMessage({
+                                    type: 'updateVersionCheck',
+                                    latestVersion: latestVersion
+                                });
+                            }
+                        } catch (ghErr) {
+                            console.error("Failed to check GitHub version", ghErr);
+                        }
                     } catch (e) {
                         updateStatusBar(false);
                         webviewView.webview.postMessage({ type: 'serverOffline' });
@@ -225,7 +245,76 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         if (!res.ok) throw new Error("Uninstall failed");
                         vscode.window.showInformationMessage(`Uninstalled ${data.recipeName}`);
                     } catch (e) {
-                        vscode.window.showErrorMessage(`Failed to uninstall ${data.recipeName}`);
+                        vscode.window.showErrorMessage(`${e}`);
+                    }
+                    break;
+
+                case 'chatRequest':
+                    try {
+                        // Guard: no model loaded
+                        if (!this._lastLoadedModel) {
+                            vscode.window.showErrorMessage(
+                                'No model is loaded. Please load a model before sending a chat request.'
+                            );
+                            webviewView.webview.postMessage({
+                                type: 'chatError',
+                                error: 'No model loaded. Please load a model first.'
+                            });
+                            break;
+                        }
+
+                        // The user specified to use the v1/chat/completions endpoint
+                        // and ensure the model name is included if required.
+                        const res = await fetch(`${rawUrl}/v1/chat/completions`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({
+                                model: this._lastLoadedModel,
+                                messages: data.messages,
+                                stream: true
+                            })
+                        });
+
+                        if (!res.ok) throw new Error("Chat request failed");
+                        if (!res.body) throw new Error("No response body");
+
+                        const reader = res.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+                            const chunk = decoder.decode(value, { stream: true });
+                            
+                            // Basic SSE parsing for OpenAI-compatible format
+                            buffer += chunk;
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop() || '';
+
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    const dataStr = line.slice(6).trim();
+                                    if (dataStr === '[DONE]') continue;
+                                    try {
+                                        const json = JSON.parse(dataStr);
+                                        const content = json.choices?.[0]?.delta?.content || "";
+                                        if (content) {
+                                            webviewView.webview.postMessage({
+                                                type: 'chatResponseChunk',
+                                                content: content
+                                            });
+                                        }
+                                    } catch (e) {
+                                        // Ignore partial JSON chunks
+                                    }
+                                }
+                            }
+                        }
+                        webviewView.webview.postMessage({ type: 'chatResponseDone' });
+                    } catch (e) {
+                        vscode.window.showErrorMessage(`Chat error: ${e}`);
+                        webviewView.webview.postMessage({ type: 'chatError', error: String(e) });
                     }
                     break;
             }
@@ -241,9 +330,10 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Lemonade Manager</title>
                 <script type="module" src="https://cdn.jsdelivr.net/npm/@vscode/webview-ui-toolkit/dist/toolkit.min.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
                 <style>
-                    body { padding: 0 10px; display: flex; flex-direction: column; gap: 20px; }
-                    .header-status { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--vscode-panel-border); }
+                    body { padding: 0 10px; display: flex; flex-direction: column; gap: 20px; height: 100vh; margin: 0; box-sizing: border-box; }
+                    .header-status { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--vscode-panel-border); flex-shrink: 0; }
                     .status-badge { display: flex; align-items: center; gap: 6px; font-weight: 600; }
                     .indicator { width: 10px; height: 10px; border-radius: 50%; background: var(--vscode-disabledForeground); }
                     .indicator.online { background: var(--vscode-testing-iconPassed); }
@@ -257,16 +347,37 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     .metric-value { font-family: var(--vscode-editor-font-family); font-weight: bold; }
                     
                     vscode-text-field, vscode-dropdown, vscode-button { width: 100%; margin-bottom: 10px; }
+
+                    .scroll-controls { position: absolute; right: 20px; bottom: 150px; display: flex; flex-direction: column; gap: 5px; z-index: 100; }
+                    .scroll-btn { width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 50% !important; }
                     .button-group { display: flex; gap: 10px; }
                     .recipe-list { font-size: 12px; margin-top: 10px; line-height: 1.6; }
                     .recipe-item { display: inline-block; padding: 2px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px; margin: 2px; }
+
+                    /* Chat Styles */
+                    #chatContainer { display: flex; flex-direction: column; height: calc(100vh - 120px); gap: 10px; position: relative; }
+                    #chatMessages { flex: 1; overflow-y: auto; padding: 5px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; scroll-behavior: smooth; }
+                    .message-wrapper { display: flex; flex-direction: column; gap: 4px; max-width: 90%; }
+                    .message-wrapper.user { align-self: flex-end; }
+                    .message-wrapper.bot { align-self: flex-start; }
+                    .message { padding: 8px; border-radius: 4px; font-size: 13px; line-height: 1.4; position: relative; }
+                    .user-message { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+                    .bot-message { background: var(--vscode-editor-inactiveSelectionBackground); color: var(--vscode-editor-foreground); }
+                    .copy-btn { align-self: flex-end; opacity: 0; transition: opacity 0.2s; font-size: 10px; padding: 2px 6px; cursor: pointer; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px; border: none; }
+                    .message-wrapper:hover .copy-btn { opacity: 1; }
+                    .chat-input-area { display: flex; gap: 5px; flex-shrink: 0; align-items: flex-end; }
+                    #chatInput { flex: 1; width: 100%; }
+                    #sendChatBtn { flex-shrink: 0; min-width: 60px; width: auto; }
                 </style>
             </head>
             <body>
                 <div class="header-status">
-                    <div class="status-badge">
-                        <div id="statusDot" class="indicator offline"></div>
-                        <span id="statusText">Disconnected</span>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div class="status-badge">
+                            <div id="statusDot" class="indicator offline"></div>
+                            <span id="statusText">Disconnected</span>
+                        </div>
+                        <div id="activeModelHeader" style="font-size: 10px; opacity: 0.7; font-weight: normal;">No Model Active</div>
                     </div>
                     <vscode-badge id="speedBadge">0 t/s</vscode-badge>
                 </div>
@@ -277,9 +388,26 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     <vscode-panel-tab id="tab-3">Health</vscode-panel-tab>
                     <vscode-panel-tab id="tab-4">Library</vscode-panel-tab>
                     <vscode-panel-tab id="tab-5">Backends</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-6">Chat</vscode-panel-tab>
 
                     <!-- Main Tab: Loaded Models and Last Request Stats -->
                     <vscode-panel-view id="view-1" style="flex-direction: column;">
+                        <div class="section">
+                            <h3>Load / Unload Models</h3>
+                            <vscode-dropdown id="modelSelect">
+                                <vscode-option value="">Fetching models...</vscode-option>
+                            </vscode-dropdown>
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                                <vscode-text-field id="contextSize" placeholder="Context size eg. 4096" style="flex: 1;"></vscode-text-field>
+                            </div>
+                            <div class="button-group">
+                                <vscode-button appearance="primary" onclick="manageModel('load')">Load to VRAM</vscode-button>
+                                <vscode-button appearance="secondary" onclick="manageModel('unload')">Unload</vscode-button>
+                            </div>
+                        </div>
+
+                        <vscode-divider></vscode-divider>
+
                         <div class="section">
                             <h3>Last Request Stats</h3>
                             <div class="metric"><span class="metric-label">Time to First Token</span><span id="ttft" class="metric-value">0s</span></div>
@@ -295,16 +423,14 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         <div class="section">
                             <h3>Loaded Models</h3>
                             <div id="loadedModelsList" style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground);">No models loaded</div>
-                            <vscode-dropdown id="modelSelect">
-                                <vscode-option value="">Fetching models...</vscode-option>
-                            </vscode-dropdown>
-                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
-                                <vscode-text-field id="contextSize" placeholder="Context size eg. 4096" style="flex: 1;"></vscode-text-field>
-                            </div>
-                            <div class="button-group">
-                                <vscode-button appearance="primary" onclick="manageModel('load')">Load to VRAM</vscode-button>
-                                <vscode-button appearance="secondary" onclick="manageModel('unload')">Unload</vscode-button>
-                            </div>
+                        </div>
+
+                        <vscode-divider></vscode-divider>
+                        
+                        <div style="margin-top: auto; padding: 15px 0; text-align: center;">
+                            <vscode-link href="https://github.com/lemonade-sdk/lemonade">
+                                <span class="codicon codicon-github"></span> View Lemonade on GitHub
+                            </vscode-link>
                         </div>
                     </vscode-panel-view>
 
@@ -312,7 +438,13 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     <vscode-panel-view id="view-2" style="flex-direction: column;">
                         <div class="section">
                             <h3>Server Info</h3>
-                            <div class="metric"><span class="metric-label">Version</span><span id="serverVersion" class="metric-value">-</span></div>
+                            <div class="metric">
+                                <span class="metric-label">Version</span>
+                                <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                                    <span id="serverVersion" class="metric-value">-</span>
+                                    <span id="versionStatus" style="font-size: 10px; margin-top: 2px;"></span>
+                                </div>
+                            </div>
                             <div class="metric"><span class="metric-label">WebSocket Port</span><span id="wsPort" class="metric-value">-</span></div>
                         </div>
 
@@ -389,6 +521,23 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             </div>
                         </div>
                     </vscode-panel-view>
+
+                    <vscode-panel-view id="view-6" style="flex-direction: column;">
+                        <div id="chatContainer">
+                            <div id="chatMessages"></div>
+                            <div class="scroll-controls">
+                                <vscode-button class="scroll-btn" appearance="secondary" onclick="scrollToTop()" title="Scroll to Top">↑</vscode-button>
+                                <vscode-button class="scroll-btn" appearance="secondary" onclick="scrollToBottom()" title="Scroll to Bottom">↓</vscode-button>
+                            </div>
+                            <div class="chat-input-area">
+                                <vscode-text-area id="chatInput" placeholder="Ask Lemonade..." rows="4" resize="vertical"></vscode-text-area>
+                                <div style="display: flex; flex-direction: column; gap: 5px;">
+                                    <vscode-button id="sendChatBtn" appearance="primary" onclick="sendChat()">Send</vscode-button>
+                                    <vscode-button appearance="secondary" onclick="clearChat()">Clear</vscode-button>
+                                </div>
+                            </div>
+                        </div>
+                    </vscode-panel-view>
                 </vscode-panels>
 
                 <script>
@@ -419,6 +568,107 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         if (recipeName) vscode.postMessage({ type: 'uninstallBackend', recipeName });
                     }
 
+                    let chatHistory = [];
+                    let currentBotMessageElement = null;
+                    let isAutoScrollEnabled = true;
+
+                    const chatMessages = document.getElementById('chatMessages');
+                    chatMessages.addEventListener('scroll', () => {
+                        const { scrollTop, scrollHeight, clientHeight } = chatMessages;
+                        // If user scrolls up significantly from bottom, disable auto-scroll
+                        const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+                        isAutoScrollEnabled = isAtBottom;
+                    });
+
+                    function scrollToTop() {
+                        chatMessages.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+
+                    function scrollToBottom() {
+                        chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+                        isAutoScrollEnabled = true;
+                    }
+
+                    function copyToClipboard(text, btn) {
+                        navigator.clipboard.writeText(text).then(() => {
+                            const originalText = btn.innerText;
+                            btn.innerText = 'Copied!';
+                            setTimeout(() => btn.innerText = originalText, 2000);
+                        });
+                    }
+
+                    function sendChat() {
+                        const input = document.getElementById('chatInput');
+                        const text = input.value.trim();
+                        if (!text) return;
+
+                        // Add user message to UI
+                        appendMessage('user', text);
+                        chatHistory.push({ role: 'user', content: text });
+                        
+                        // Clear the input area immediately
+                        input.value = '';
+
+                        // Disable button
+                        document.getElementById('sendChatBtn').disabled = true;
+
+                        // Prepare bot message placeholder
+                        currentBotMessageElement = appendMessage('bot', '...');
+                        currentBotMessageElement.setAttribute('data-raw', '...');
+
+                        const modelSelect = document.getElementById('modelSelect');
+                        const selectedModel = modelSelect ? modelSelect.value : "llama3";
+
+                        vscode.postMessage({
+                            type: 'chatRequest',
+                            messages: chatHistory,
+                            model: selectedModel
+                        });
+                    }
+
+                    document.getElementById('chatInput').addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            sendChat();
+                        }
+                    });
+
+                    function clearChat() {
+                        chatHistory = [];
+                        document.getElementById('chatMessages').innerHTML = '';
+                    }
+
+                    function appendMessage(role, text) {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'message-wrapper ' + (role === 'user' ? 'user' : 'bot');
+                        
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = 'message ' + (role === 'user' ? 'user-message' : 'bot-message');
+                        
+                        if (role === 'bot') {
+                            msgDiv.innerHTML = marked.parse(text);
+                        } else {
+                            msgDiv.innerText = text;
+                        }
+                        
+                        wrapper.appendChild(msgDiv);
+                        
+                        if (role === 'bot') {
+                            const copyBtn = document.createElement('button');
+                            copyBtn.className = 'copy-btn';
+                            copyBtn.innerText = 'Copy';
+                            copyBtn.onclick = () => copyToClipboard(text, copyBtn);
+                            wrapper.appendChild(copyBtn);
+                        }
+
+                        const container = document.getElementById('chatMessages');
+                        container.appendChild(wrapper);
+                        
+                        if (isAutoScrollEnabled) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                        return msgDiv;
+                    }
+
                     window.addEventListener('message', event => {
                         const msg = event.data;
                         
@@ -429,6 +679,9 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             // Server info
                             document.getElementById('serverVersion').innerText = msg.serverVersion || '-';
                             document.getElementById('wsPort').innerText = msg.websocketPort ? String(msg.websocketPort) : '-';
+
+                            // Active Model Header
+                            document.getElementById('activeModelHeader').innerText = msg.loadedModel || 'No Model Active';
                             
                             // Stats
                             const tps = msg.stats?.tokens_per_second || 0;
@@ -490,6 +743,11 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                                         : 'No recipe data found.';
                                 }
                             }
+
+                            // Health JSON
+                            if (msg.healthData) {
+                                document.getElementById('healthJson').innerText = JSON.stringify(msg.healthData, null, 2);
+                            }
                         } else if (msg.type === 'serverOffline') {
                             document.getElementById('statusDot').className = 'indicator offline';
                             document.getElementById('statusText').innerHTML = 'Disconnected (<a href="#" style="color: var(--vscode-textLink-foreground);" onclick="openSettings()">Configure</a>)';
@@ -497,6 +755,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             // Reset all fields
                             document.getElementById('serverVersion').innerText = '-';
                             document.getElementById('wsPort').innerText = '-';
+                            document.getElementById('activeModelHeader').innerText = 'Offline';
                             document.getElementById('speedBadge').innerText = '0 t/s';
                             document.getElementById('ttft').innerText = '0s';
                             document.getElementById('tps').innerText = '0';
@@ -525,6 +784,57 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('recipeContainer').innerHTML = 'Offline';
                             
                             document.getElementById('healthJson').innerText = JSON.stringify(msg.healthData || {}, null, 2);
+                        } else if (msg.type === 'chatResponseChunk') {
+                            if (currentBotMessageElement) {
+                                if (currentBotMessageElement.getAttribute('data-raw') === '...') {
+                                    currentBotMessageElement.setAttribute('data-raw', '');
+                                }
+                                const newRaw = (currentBotMessageElement.getAttribute('data-raw') || '') + msg.content;
+                                currentBotMessageElement.setAttribute('data-raw', newRaw);
+                                currentBotMessageElement.innerHTML = marked.parse(newRaw);
+                                
+                                // Update copy button text if it exists in the wrapper
+                                const wrapper = currentBotMessageElement.parentElement;
+                                const copyBtn = wrapper.querySelector('.copy-btn');
+                                if (copyBtn) {
+                                    copyBtn.onclick = () => copyToClipboard(newRaw, copyBtn);
+                                }
+
+                                if (isAutoScrollEnabled) {
+                                    const container = document.getElementById('chatMessages');
+                                    container.scrollTop = container.scrollHeight;
+                                }
+                            }
+                        } else if (msg.type === 'chatResponseDone') {
+                            if (currentBotMessageElement) {
+                                const finalRaw = currentBotMessageElement.getAttribute('data-raw') || '';
+                                chatHistory.push({ role: 'assistant', content: finalRaw });
+                            }
+                            document.getElementById('sendChatBtn').disabled = false;
+                            currentBotMessageElement = null;
+                        } else if (msg.type === 'chatError') {
+                            if (currentBotMessageElement) {
+                                currentBotMessageElement.innerText = 'Error: ' + msg.error;
+                            }
+                            document.getElementById('sendChatBtn').disabled = false;
+                            currentBotMessageElement = null;
+                        } else if (msg.type === 'updateVersionCheck') {
+                            const current = document.getElementById('serverVersion').innerText;
+                            const latest = msg.latestVersion;
+                            const statusEl = document.getElementById('versionStatus');
+                            
+                            if (current && latest && current !== '-') {
+                                const cleanCurrent = current.replace(/^v/, '');
+                                const cleanLatest = latest.replace(/^v/, '');
+                                
+                                if (cleanCurrent === cleanLatest) {
+                                    statusEl.innerText = 'Up to date';
+                                    statusEl.style.color = 'var(--vscode-testing-iconPassed)';
+                                } else {
+                                    statusEl.innerHTML = 'Update available: <a href="https://github.com/lemonade-sdk/lemonade/releases/latest" style="color: var(--vscode-textLink-foreground);">' + latest + '</a>';
+                                    statusEl.style.color = 'var(--vscode-testing-iconFailed)';
+                                }
+                            }
                         }
                     });
                     
