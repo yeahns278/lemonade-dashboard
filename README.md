@@ -7,11 +7,13 @@ A management dashboard for Lemonade Server. This extension provides a visual int
 - **Model Management**: View, download, and manage AI models.
 - **Backend Control**: Monitor and configure different inference backends.
 - **System Health**: Real-time status updates of your Lemonade server.
+- **Chat Interface**: Interact with your models through a built-in chat window.
 - **Integrated Settings**: Easily configure server URLs and API tokens.
 
 ## Requirements
 
-- A running instance of [Lemonade Server](https://github.com/lemonade-ai/lemonade).
+- A running instance of [Lemonade Server](https://github.com/lemonade-sdk/lemonade).
+- Visit the [Lemonade Website](https://lemonade-server.ai/) for more information.
 
 ## Extension Settings
 
