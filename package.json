@@ -3,6 +3,7 @@
   "displayName": "Lemonade Dashboard",
   "description": "A management dashboard for Lemonade Server",
   "version": "0.0.1",
+  "icon": "media/lemon.svg",
   "engines": {
     "vscode": "^1.109.0"
   },
@@ -40,6 +41,19 @@
           "type": "string",
           "default": "",
           "description": "API Token (LEMONADE_API_KEY) for authentication"
+        },
+        "lemonade.defaultTab": {
+          "type": "string",
+          "default": "main",
+          "enum": [
+            "main",
+            "system",
+            "health",
+            "library",
+            "backends",
+            "chat"
+          ],
+          "description": "The default tab to show when the dashboard opens"
         }
       }
     },

@@ -40,6 +40,7 @@ export function getLemonadeConfig() {
     const config = vscode.workspace.getConfiguration('lemonade');
     let rawUrl = config.get<string>('serverUrl') || 'http://127.0.0.1:8000';
     const token = config.get<string>('apiToken') || '';
+    const defaultTab = config.get<string>('defaultTab') || 'main';
 
     rawUrl = rawUrl.trim().replace(/\/+$/, '');
     if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
@@ -55,7 +56,7 @@ export function getLemonadeConfig() {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    return { rawUrl, apiUrl, headers };
+    return { rawUrl, apiUrl, headers, defaultTab };
 }
 
 class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
@@ -75,7 +76,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtmlForWebview();
 
         webviewView.webview.onDidReceiveMessage(async data => {
-            const { rawUrl, apiUrl, headers } = getLemonadeConfig();
+            const { rawUrl, apiUrl, headers, defaultTab } = getLemonadeConfig();
             
             switch (data.type) {
                 case 'openSettings':
@@ -111,6 +112,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                         webviewView.webview.postMessage({
                             type: 'renderDashboard',
+                            defaultTab: defaultTab,
                             sysInfo: sysInfo,
                             models: modelsData.data || [],
                             loadedModel: healthData.model_loaded || null,
@@ -355,14 +357,16 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     .recipe-item { display: inline-block; padding: 2px 6px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px; margin: 2px; }
 
                     /* Chat Styles */
-                    #chatContainer { display: flex; flex-direction: column; height: calc(100vh - 120px); gap: 10px; position: relative; }
+                    #chatContainer { display: flex; flex-direction: column; height: calc(100vh - 140px); gap: 10px; position: relative; }
                     #chatMessages { flex: 1; overflow-y: auto; padding: 5px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; scroll-behavior: smooth; }
                     .message-wrapper { display: flex; flex-direction: column; gap: 4px; max-width: 90%; }
                     .message-wrapper.user { align-self: flex-end; }
                     .message-wrapper.bot { align-self: flex-start; }
-                    .message { padding: 8px; border-radius: 4px; font-size: 13px; line-height: 1.4; position: relative; }
+                    .message { padding: 8px; border-radius: 4px; font-size: 13px; line-height: 1.4; position: relative; overflow-wrap: break-word; word-wrap: break-word; word-break: break-word; }
                     .user-message { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
                     .bot-message { background: var(--vscode-editor-inactiveSelectionBackground); color: var(--vscode-editor-foreground); }
+                    .bot-message pre { white-space: pre-wrap; word-break: break-all; }
+                    .bot-message code { white-space: pre-wrap; word-break: break-all; }
                     .copy-btn { align-self: flex-end; opacity: 0; transition: opacity 0.2s; font-size: 10px; padding: 2px 6px; cursor: pointer; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 3px; border: none; }
                     .message-wrapper:hover .copy-btn { opacity: 1; }
                     .chat-input-area { display: flex; gap: 5px; flex-shrink: 0; align-items: flex-end; }
@@ -382,16 +386,23 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     <vscode-badge id="speedBadge">0 t/s</vscode-badge>
                 </div>
 
-                <vscode-panels>
-                    <vscode-panel-tab id="tab-1">Main</vscode-panel-tab>
-                    <vscode-panel-tab id="tab-2">System</vscode-panel-tab>
-                    <vscode-panel-tab id="tab-3">Health</vscode-panel-tab>
-                    <vscode-panel-tab id="tab-4">Library</vscode-panel-tab>
-                    <vscode-panel-tab id="tab-5">Backends</vscode-panel-tab>
-                    <vscode-panel-tab id="tab-6">Chat</vscode-panel-tab>
+                <vscode-panels id="dashboardPanels">
+                    <vscode-panel-tab id="tab-main">Main</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-system">System</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-health">Health</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-library">Library</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-backends">Backends</vscode-panel-tab>
+                    <vscode-panel-tab id="tab-chat">Chat</vscode-panel-tab>
 
                     <!-- Main Tab: Loaded Models and Last Request Stats -->
-                    <vscode-panel-view id="view-1" style="flex-direction: column;">
+                    <vscode-panel-view id="view-main" style="flex-direction: column;">
+                        <div class="section">
+                            <h3>Loaded Models</h3>
+                            <div id="loadedModelsList" style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground);">No models loaded</div>
+                        </div>
+
+                        <vscode-divider></vscode-divider>
+
                         <div class="section">
                             <h3>Load / Unload Models</h3>
                             <vscode-dropdown id="modelSelect">
@@ -419,13 +430,6 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         </div>
 
                         <vscode-divider></vscode-divider>
-
-                        <div class="section">
-                            <h3>Loaded Models</h3>
-                            <div id="loadedModelsList" style="font-size: 12px; margin-bottom: 10px; color: var(--vscode-descriptionForeground);">No models loaded</div>
-                        </div>
-
-                        <vscode-divider></vscode-divider>
                         
                         <div style="margin-top: auto; padding: 15px 0; text-align: center;">
                             <vscode-link href="https://github.com/lemonade-sdk/lemonade">
@@ -435,7 +439,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     </vscode-panel-view>
 
                     <!-- System Tab: Server Info, Hardware Specs, Model Limits -->
-                    <vscode-panel-view id="view-2" style="flex-direction: column;">
+                    <vscode-panel-view id="view-system" style="flex-direction: column;">
                         <div class="section">
                             <h3>Server Info</h3>
                             <div class="metric">
@@ -471,14 +475,14 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         </div>
                     </vscode-panel-view>
 
-                    <vscode-panel-view id="view-3" style="flex-direction: column;">
+                    <vscode-panel-view id="view-health" style="flex-direction: column;">
                         <div class="section">
                             <h3>Server Health</h3>
                             <pre id="healthJson" style="font-size: 11px; font-family: var(--vscode-editor-font-family); background: var(--vscode-input-background); padding: 12px; border-radius: 3px; max-height: 300px; overflow-y: auto; color: var(--vscode-editor-foreground); white-space: pre-wrap; word-wrap: break-word;"></pre>
                         </div>
                     </vscode-panel-view>
 
-                    <vscode-panel-view id="view-4" style="flex-direction: column;">
+                    <vscode-panel-view id="view-library" style="flex-direction: column;">
                         <div class="section">
                             <h3>Pull New Model</h3>
                             <vscode-text-field id="pullInput" placeholder="e.g., unsloth/Qwen3.5-27B-GGUF:UD-Q8_K_XL">
@@ -500,7 +504,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         </div>
                     </vscode-panel-view>
 
-                    <vscode-panel-view id="view-5" style="flex-direction: column;">
+                    <vscode-panel-view id="view-backends" style="flex-direction: column;">
                         <div class="section">
                             <h3>Manage Recipes</h3>
                             <vscode-text-field id="recipeInput" placeholder="e.g., llamacpp:vulkan">
@@ -522,7 +526,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         </div>
                     </vscode-panel-view>
 
-                    <vscode-panel-view id="view-6" style="flex-direction: column;">
+                    <vscode-panel-view id="view-chat" style="flex-direction: column;">
                         <div id="chatContainer">
                             <div id="chatMessages"></div>
                             <div class="scroll-controls">
@@ -680,6 +684,15 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         if (msg.type === 'renderDashboard') {
                             document.getElementById('statusDot').className = 'indicator online';
                             document.getElementById('statusText').innerText = 'Connected';
+
+                            // Set default tab on first load
+                            if (!window.hasSetDefaultTab && msg.defaultTab) {
+                                const panels = document.getElementById('dashboardPanels');
+                                if (panels) {
+                                    panels.setAttribute('activeid', 'tab-' + msg.defaultTab);
+                                }
+                                window.hasSetDefaultTab = true;
+                            }
                             
                             // Server info
                             document.getElementById('serverVersion').innerText = msg.serverVersion || '-';
