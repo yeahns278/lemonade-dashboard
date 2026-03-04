@@ -141,6 +141,20 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         } catch (ghErr) {
                             console.error("Failed to check GitHub version", ghErr);
                         }
+
+                        // Fetch server_models.json for the pull model dropdown
+                        try {
+                            const modelsRes = await fetch('https://raw.githubusercontent.com/lemonade-sdk/lemonade/refs/heads/main/src/cpp/resources/server_models.json');
+                            if (modelsRes.ok) {
+                                const serverModels = await modelsRes.json();
+                                webviewView.webview.postMessage({
+                                    type: 'serverModelsLoaded',
+                                    models: serverModels
+                                });
+                            }
+                        } catch (err) {
+                            console.error("Failed to fetch server_models.json", err);
+                        }
                     } catch (e) {
                         updateStatusBar(false);
                         webviewView.webview.postMessage({ type: 'serverOffline' });
@@ -166,17 +180,17 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'pullModel':
-                    // Validate: if checkpoint or recipe are provided, model name must have "user." prefix
-                    if ((data.checkpoint || data.recipe) && !data.modelName.startsWith("user.")) {
-                        vscode.window.showErrorMessage("When providing 'checkpoint' or 'recipe', the model name must include the 'user.' prefix.");
-                        break;
+                    let finalModelName = data.modelName;
+                    // If checkpoint or recipe is provided, ensure model name has "user." prefix
+                    if ((data.checkpoint || data.recipe) && !finalModelName.startsWith("user.")) {
+                        finalModelName = "user." + finalModelName;
                     }
 
-                    vscode.window.showInformationMessage(`Pulling model: ${data.modelName}...`);
+                    vscode.window.showInformationMessage(`Pulling model: ${finalModelName}...`);
                     try {
-                        const pullBody: any = { model_name: data.modelName };
-                        if (data.checkpoint) pullBody.checkpoint = data.checkpoint;
-                        if (data.recipe) pullBody.recipe = data.recipe;
+                        const pullBody: any = { model_name: finalModelName };
+                        if (data.checkpoint) pullBody.checkpoint = String(data.checkpoint);
+                        if (data.recipe) pullBody.recipe = String(data.recipe);
                         if (data.mmproj) pullBody.mmproj = data.mmproj;
                         if (data.vision) pullBody.vision = true;
                         if (data.reasoning) pullBody.reasoning = true;
@@ -534,8 +548,11 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             <h3>Pull & Register Model</h3>
                             <p style="font-size: 11px; margin-bottom: 10px; opacity: 0.8;">
                                 Pull a built-in model or register a new one from Hugging Face.
-                                <strong>Important:</strong> Custom models must start with <code>user.</code>
                             </p>
+
+                            <vscode-dropdown id="serverModelSelect" style="margin-bottom: 10px;">
+                                <vscode-option value="">Select a pre-configured model...</vscode-option>
+                            </vscode-dropdown>
                             
                             <vscode-text-field id="pullInput" placeholder="e.g., user.Phi-4-Mini-GGUF">
                                 Model Name
@@ -629,6 +646,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                 <script>
                     const vscode = acquireVsCodeApi();
+                    let availableServerModels = {};
 
                     function requestDashboardData() { vscode.postMessage({ type: 'getDashboardData' }); }
                     function openSettings() { vscode.postMessage({ type: 'openSettings' }); }
@@ -990,6 +1008,48 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                                     statusEl.innerHTML = 'Update available: <a href="https://github.com/lemonade-sdk/lemonade/releases/latest" style="color: var(--vscode-textLink-foreground);">' + latest + '</a>';
                                     statusEl.style.color = 'var(--vscode-testing-iconFailed)';
                                 }
+                            }
+                        } else if (msg.type === 'serverModelsLoaded') {
+                            availableServerModels = msg.models;
+                            const select = document.getElementById('serverModelSelect');
+                            if (select) {
+                                const options = Object.keys(availableServerModels).map(name =>
+                                    '<vscode-option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</vscode-option>'
+                                ).join('');
+                                select.innerHTML = '<vscode-option value="">Select a pre-configured model...</vscode-option>' + options;
+                                
+                                select.addEventListener('change', (e) => {
+                                    const selectedName = e.target.value;
+                                    if (selectedName && availableServerModels[selectedName]) {
+                                        const model = availableServerModels[selectedName];
+                                        document.getElementById('pullInput').value = selectedName;
+                                        
+                                        // Handle single checkpoint string or checkpoints object
+                                        if (typeof model.checkpoint === 'string') {
+                                            document.getElementById('pullCheckpoint').value = model.checkpoint;
+                                        } else if (model.checkpoints && model.checkpoints.main) {
+                                            document.getElementById('pullCheckpoint').value = model.checkpoints.main;
+                                        } else {
+                                            document.getElementById('pullCheckpoint').value = '';
+                                        }
+
+                                        document.getElementById('pullRecipe').value = model.recipe || '';
+                                        
+                                        // Reset checkboxes
+                                        document.getElementById('pullVision').checked = false;
+                                        document.getElementById('pullReasoning').checked = false;
+                                        document.getElementById('pullEmbedding').checked = false;
+                                        document.getElementById('pullReranking').checked = false;
+
+                                        // Set labels
+                                        if (model.labels) {
+                                            if (model.labels.includes('vision')) document.getElementById('pullVision').checked = true;
+                                            if (model.labels.includes('reasoning')) document.getElementById('pullReasoning').checked = true;
+                                            if (model.labels.includes('embeddings')) document.getElementById('pullEmbedding').checked = true;
+                                            if (model.labels.includes('reranking')) document.getElementById('pullReranking').checked = true;
+                                        }
+                                    }
+                                });
                             }
                         }
                     });
