@@ -2,8 +2,25 @@
 
 All notable changes to the "lemonade-dashboard" extension will be documented in this file.
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+## [0.0.2] - 2026-03-04
 
-## [Unreleased]
+### Added
+- GitHub Actions workflow for automated publishing on tags and GitHub Release creation.
+- Webview-based management dashboard for Lemonade Server.
+- Activity bar icon and explorer view for easy access.
+- Commands for opening server settings.
+- Configuration options for Server URL, API Token, and default tab.
+- Screenshot of the dashboard in documentation.
+
+### Changed
+- Major refactoring of [`src/extension.ts`](src/extension.ts) to implement the dashboard logic.
+- Updated [`package.json`](package.json) with categories, contributions, and engine requirements.
+- Switched to webpack for production builds.
+
+### Removed
+- Unused test files and configurations (`eslint.config.mjs`, `.vscode-test.mjs`, `src/test/extension.test.ts`).
+- Temporary scripts and assets (`convert_icon.js`, `media/lemon.svg`).
+
+## [0.0.1] - 2026-03-03
 
 - Initial release

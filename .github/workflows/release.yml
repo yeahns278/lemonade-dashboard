@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Package Extension
+        run: npx vsce package
+
+      - name: Publish to VS Code Marketplace
+        run: npx vsce publish -p ${{ secrets.VSCE_PAT }}
+        if: startsWith(github.ref, 'refs/tags/v')
+
+      - name: Extract Release Notes
+        id: extract_release_notes
+        run: |
+          # Extract the content from the first ## header to the next ## header in CHANGELOG.md
+          # This assumes the latest version is at the top.
+          sed -n '/^## /,/^## /p' CHANGELOG.md | sed '$d' > release_notes.md
+        if: startsWith(github.ref, 'refs/tags/v')
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: "*.vsix"
+          body_path: release_notes.md
+          generate_release_notes: false
