@@ -199,19 +199,45 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             if (done) break;
                             buffer += decoder.decode(value, { stream: true });
                 
-                            const events = buffer.split('\\n\\n');
+                            const events = buffer.split('\n\n');
                             buffer = events.pop() || '';
                 
                             for (const evt of events) {
                                 if (evt.includes('event: progress')) {
-                                    const dataLine = evt.split('\\n').find(l => l.startsWith('data:'));
+                                    const dataLine = evt.split('\n').find(l => l.startsWith('data:'));
                                     if (dataLine) {
-                                        const payload = JSON.parse(dataLine.replace('data:', '').trim());
-                                        webviewView.webview.postMessage({
-                                            type: 'pullProgress',
-                                            model: data.modelName,
-                                            percent: payload.percent
-                                        });
+                                        try {
+                                            const payload = JSON.parse(dataLine.replace('data:', '').trim());
+                                            webviewView.webview.postMessage({
+                                                type: 'pullProgress',
+                                                status: 'downloading',
+                                                model: data.modelName,
+                                                file: payload.file,
+                                                percent: payload.percent
+                                            });
+                                        } catch (e) {
+                                            console.error("Error parsing progress event", e);
+                                        }
+                                    }
+                                } else if (evt.includes('event: complete')) {
+                                    webviewView.webview.postMessage({
+                                        type: 'pullProgress',
+                                        status: 'complete',
+                                        model: data.modelName
+                                    });
+                                } else if (evt.includes('event: error')) {
+                                    const dataLine = evt.split('\n').find(l => l.startsWith('data:'));
+                                    if (dataLine) {
+                                        try {
+                                            const payload = JSON.parse(dataLine.replace('data:', '').trim());
+                                            webviewView.webview.postMessage({
+                                                type: 'pullProgress',
+                                                status: 'error',
+                                                message: payload.error || payload.message || 'Unknown pull error'
+                                            });
+                                        } catch (e) {
+                                            console.error("Error parsing error event", e);
+                                        }
                                     }
                                 }
                             }
@@ -499,20 +525,44 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                     <vscode-panel-view id="view-library" style="flex-direction: column;">
                         <div class="section">
-                            <h3>Pull New Model</h3>
-                            <vscode-text-field id="pullInput" placeholder="e.g., unsloth/Qwen3.5-27B-GGUF:UD-Q8_K_XL">
-                                HuggingFace Repo ID (Prefix with user. for custom models)
+                            <h3>Pull & Register Model</h3>
+                            <p style="font-size: 11px; margin-bottom: 10px; opacity: 0.8;">
+                                Pull a built-in model or register a new one from Hugging Face.
+                                <strong>Important:</strong> Custom models must start with <code>user.</code>
+                            </p>
+                            
+                            <vscode-text-field id="pullInput" placeholder="e.g., user.Phi-4-Mini-GGUF">
+                                Model Name
                             </vscode-text-field>
-                            <vscode-text-field id="pullCheckpoint" placeholder="Optional: specific file/path"></vscode-text-field>
-                            <vscode-text-field id="pullRecipe" placeholder="Optional: recipe (e.g., llamacpp)"></vscode-text-field>
-                            <vscode-text-field id="pullMmproj" placeholder="Optional: mmproj file (for vision)"></vscode-text-field>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+
+                            <vscode-text-field id="pullCheckpoint" placeholder="e.g., unsloth/Phi-4-mini-instruct-GGUF:Q4_K_M">
+                                Checkpoint (Hugging Face ID)
+                            </vscode-text-field>
+
+                            <vscode-text-field id="pullRecipe" placeholder="e.g., llamacpp">
+                                Recipe
+                            </vscode-text-field>
+
+                            <vscode-text-field id="pullMmproj" placeholder="Optional: mmproj file path">
+                                Multimodal Projector (mmproj)
+                            </vscode-text-field>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 10px;">
                                 <vscode-checkbox id="pullVision">Vision</vscode-checkbox>
                                 <vscode-checkbox id="pullReasoning">Reasoning</vscode-checkbox>
                                 <vscode-checkbox id="pullEmbedding">Embedding</vscode-checkbox>
                                 <vscode-checkbox id="pullReranking">Reranking</vscode-checkbox>
                             </div>
-                            <vscode-button appearance="primary" onclick="pullModel()">Download Model</vscode-button>
+                            
+                            <div id="pullProgressContainer" style="display: none; margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
+                                    <span id="pullProgressFile">Downloading...</span>
+                                    <span id="pullProgressPercent">0%</span>
+                                </div>
+                                <vscode-progress-indicator id="pullProgressBar" value="0"></vscode-progress-indicator>
+                            </div>
+
+                            <vscode-button appearance="primary" id="pullBtn" onclick="pullModel()">Pull Model</vscode-button>
                         </div>
 
                         <vscode-divider></vscode-divider>
@@ -846,6 +896,33 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('recipeContainer').innerHTML = 'Offline';
                             
                             document.getElementById('healthJson').innerText = JSON.stringify(msg.healthData || {}, null, 2);
+                        } else if (msg.type === 'pullProgress') {
+                            const container = document.getElementById('pullProgressContainer');
+                            const fileEl = document.getElementById('pullProgressFile');
+                            const percentEl = document.getElementById('pullProgressPercent');
+                            const bar = document.getElementById('pullProgressBar');
+                            const pullBtn = document.getElementById('pullBtn');
+
+                            if (container) container.style.display = 'block';
+                            if (pullBtn) pullBtn.disabled = true;
+
+                            if (msg.status === 'downloading') {
+                                if (fileEl) fileEl.innerText = 'Downloading: ' + (msg.file || 'model files...');
+                                if (percentEl) percentEl.innerText = msg.percent + '%';
+                                if (bar) bar.setAttribute('value', msg.percent);
+                            } else if (msg.status === 'complete') {
+                                if (fileEl) fileEl.innerText = 'Download Complete!';
+                                if (percentEl) percentEl.innerText = '100%';
+                                if (bar) bar.setAttribute('value', 100);
+                                setTimeout(() => {
+                                    if (container) container.style.display = 'none';
+                                    if (pullBtn) pullBtn.disabled = false;
+                                }, 3000);
+                            } else if (msg.status === 'error') {
+                                if (fileEl) fileEl.innerText = 'Error: ' + msg.message;
+                                if (percentEl) percentEl.innerText = '';
+                                if (pullBtn) pullBtn.disabled = false;
+                            }
                         } else if (msg.type === 'chatResponseChunk') {
                             if (currentBotMessageElement) {
                                 if (currentBotMessageElement.getAttribute('data-raw') === '...') {
