@@ -10,10 +10,12 @@
   },
   "icon": "media/lemon.png",
   "engines": {
-    "vscode": "^1.109.0"
+    "vscode": "^1.109.0",
+    "node": ">=24.14.0"
   },
   "categories": [
-    "AI","Chat"
+    "AI",
+    "Chat"
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
@@ -95,7 +97,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
+    "@types/node": "^25.3.3",
     "@types/vscode": "^1.109.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
