@@ -166,12 +166,27 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'pullModel':
+                    // Validate: if checkpoint or recipe are provided, model name must have "user." prefix
+                    if ((data.checkpoint || data.recipe) && !data.modelName.startsWith("user.")) {
+                        vscode.window.showErrorMessage("When providing 'checkpoint' or 'recipe', the model name must include the 'user.' prefix.");
+                        break;
+                    }
+
                     vscode.window.showInformationMessage(`Pulling model: ${data.modelName}...`);
                     try {
                         const res = await fetch(`${apiUrl}/pull?stream=true`, {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({ model_name: data.modelName })
+                            body: JSON.stringify({
+                                model_name: data.modelName,
+                                checkpoint: data.checkpoint || "",
+                                recipe: data.recipe || "",
+                                mmproj: data.mmproj || "",
+                                vision: !!data.vision,
+                                reasoning: !!data.reasoning,
+                                embedding: !!data.embedding,
+                                reranking: !!data.reranking
+                            })
                         });
                         if (!res.ok || !res.body) throw new Error("Pull failed");
                 
@@ -486,8 +501,17 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         <div class="section">
                             <h3>Pull New Model</h3>
                             <vscode-text-field id="pullInput" placeholder="e.g., unsloth/Qwen3.5-27B-GGUF:UD-Q8_K_XL">
-                                HuggingFace Repo ID
+                                HuggingFace Repo ID (Prefix with user. for custom models)
                             </vscode-text-field>
+                            <vscode-text-field id="pullCheckpoint" placeholder="Optional: specific file/path"></vscode-text-field>
+                            <vscode-text-field id="pullRecipe" placeholder="Optional: recipe (e.g., llamacpp)"></vscode-text-field>
+                            <vscode-text-field id="pullMmproj" placeholder="Optional: mmproj file (for vision)"></vscode-text-field>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                                <vscode-checkbox id="pullVision">Vision</vscode-checkbox>
+                                <vscode-checkbox id="pullReasoning">Reasoning</vscode-checkbox>
+                                <vscode-checkbox id="pullEmbedding">Embedding</vscode-checkbox>
+                                <vscode-checkbox id="pullReranking">Reranking</vscode-checkbox>
+                            </div>
                             <vscode-button appearance="primary" onclick="pullModel()">Download Model</vscode-button>
                         </div>
 
@@ -557,7 +581,27 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     }
                     function pullModel() {
                         const modelName = document.getElementById('pullInput').value;
-                        if (modelName) vscode.postMessage({ type: 'pullModel', modelName });
+                        const checkpoint = document.getElementById('pullCheckpoint').value;
+                        const recipe = document.getElementById('pullRecipe').value;
+                        const mmproj = document.getElementById('pullMmproj').value;
+                        const vision = document.getElementById('pullVision').checked;
+                        const reasoning = document.getElementById('pullReasoning').checked;
+                        const embedding = document.getElementById('pullEmbedding').checked;
+                        const reranking = document.getElementById('pullReranking').checked;
+
+                        if (modelName) {
+                            vscode.postMessage({
+                                type: 'pullModel',
+                                modelName,
+                                checkpoint,
+                                recipe,
+                                mmproj,
+                                vision,
+                                reasoning,
+                                embedding,
+                                reranking
+                            });
+                        }
                     }
                     function deleteModel() {
                         const modelName = document.getElementById('deleteSelect').value;

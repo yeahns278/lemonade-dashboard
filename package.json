@@ -13,7 +13,7 @@
     "vscode": "^1.109.0"
   },
   "categories": [
-    "Machine Learning"
+    "AI","Chat"
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
