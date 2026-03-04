@@ -174,19 +174,19 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
 
                     vscode.window.showInformationMessage(`Pulling model: ${data.modelName}...`);
                     try {
+                        const pullBody: any = { model_name: data.modelName };
+                        if (data.checkpoint) pullBody.checkpoint = data.checkpoint;
+                        if (data.recipe) pullBody.recipe = data.recipe;
+                        if (data.mmproj) pullBody.mmproj = data.mmproj;
+                        if (data.vision) pullBody.vision = true;
+                        if (data.reasoning) pullBody.reasoning = true;
+                        if (data.embedding) pullBody.embedding = true;
+                        if (data.reranking) pullBody.reranking = true;
+
                         const res = await fetch(`${apiUrl}/pull?stream=true`, {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({
-                                model_name: data.modelName,
-                                checkpoint: data.checkpoint || "",
-                                recipe: data.recipe || "",
-                                mmproj: data.mmproj || "",
-                                vision: !!data.vision,
-                                reasoning: !!data.reasoning,
-                                embedding: !!data.embedding,
-                                reranking: !!data.reranking
-                            })
+                            body: JSON.stringify(pullBody)
                         });
                         if (!res.ok || !res.body) throw new Error("Pull failed");
                 
@@ -269,12 +269,15 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         const res = await fetch(`${apiUrl}/install`, {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({ recipe: data.recipeName })
+                            body: JSON.stringify({
+                                recipe: data.recipeName,
+                                backend: data.backendName
+                            })
                         });
                         if (!res.ok) throw new Error("Install failed");
-                        vscode.window.showInformationMessage(`Successfully installed ${data.recipeName}`);
+                        vscode.window.showInformationMessage(`Successfully installed ${data.recipeName}:${data.backendName}`);
                     } catch (e) {
-                        vscode.window.showErrorMessage(`Failed to install ${data.recipeName}`);
+                        vscode.window.showErrorMessage(`Failed to install ${data.recipeName}:${data.backendName}`);
                     }
                     break;
 
@@ -283,10 +286,13 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         const res = await fetch(`${apiUrl}/uninstall`, {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({ recipe: data.recipeName })
+                            body: JSON.stringify({
+                                recipe: data.recipeName,
+                                backend: data.backendName
+                            })
                         });
                         if (!res.ok) throw new Error("Uninstall failed");
-                        vscode.window.showInformationMessage(`Uninstalled ${data.recipeName}`);
+                        vscode.window.showInformationMessage(`Uninstalled ${data.recipeName}:${data.backendName}`);
                     } catch (e) {
                         vscode.window.showErrorMessage(`${e}`);
                     }
@@ -581,8 +587,11 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     <vscode-panel-view id="view-backends" style="flex-direction: column;">
                         <div class="section">
                             <h3>Manage Recipes</h3>
-                            <vscode-text-field id="recipeInput" placeholder="e.g., llamacpp:vulkan">
+                            <vscode-text-field id="recipeInput" placeholder="e.g., llamacpp">
                                 Recipe Name
+                            </vscode-text-field>
+                            <vscode-text-field id="backendInput" placeholder="e.g., vulkan">
+                                Backend Name
                             </vscode-text-field>
                             <div class="button-group">
                                 <vscode-button appearance="primary" onclick="installBackend()">Install</vscode-button>
@@ -659,11 +668,19 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     }
                     function installBackend() {
                         const recipeName = document.getElementById('recipeInput').value;
-                        if (recipeName) vscode.postMessage({ type: 'installBackend', recipeName });
+                        const backendName = document.getElementById('backendInput').value;
+                        if (recipeName && backendName) {
+                            vscode.postMessage({ type: 'installBackend', recipeName, backendName });
+                        } else {
+                            // Show some basic client-side validation if missing
+                        }
                     }
                     function uninstallBackend() {
                         const recipeName = document.getElementById('recipeInput').value;
-                        if (recipeName) vscode.postMessage({ type: 'uninstallBackend', recipeName });
+                        const backendName = document.getElementById('backendInput').value;
+                        if (recipeName && backendName) {
+                            vscode.postMessage({ type: 'uninstallBackend', recipeName, backendName });
+                        }
                     }
 
                     let chatHistory = [];
