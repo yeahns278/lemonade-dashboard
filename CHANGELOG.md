@@ -1,6 +1,8 @@
-# Change Log
+# Changelog
 
-All notable changes to the "lemonade-dashboard" extension will be documented in this file.
+All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+
+### [0.0.3](https://github.com/james-martinez/lemonade-dashboard/compare/v0.0.2...v0.0.3) (2026-03-04)
 
 ## [0.0.2] - 2026-03-04
 
