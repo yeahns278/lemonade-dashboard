@@ -164,13 +164,20 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                 case 'manageModelLifecycle':
                     try {
                         const endpoint = data.action === 'load' ? '/load' : '/unload';
+                        const loadBody: any = {
+                            model_name: data.modelName,
+                            ctx_size: data.contextSize || 4096
+                        };
+                        if (data.llamacppArgs) {
+                            loadBody.llamacpp_args = data.llamacppArgs;
+                        }
+                        if (data.saveOptions !== undefined) {
+                            loadBody.save_options = data.saveOptions;
+                        }
                         const res = await fetch(`${apiUrl}${endpoint}`, {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({
-                                model_name: data.modelName,
-                                context_size: data.contextSize || 4096
-                            })
+                            body: JSON.stringify(loadBody)
                         });
                         if (!res.ok) throw new Error("Action failed");
                         vscode.window.showInformationMessage(`Successfully ${data.action}ed ${data.modelName}`);
@@ -465,12 +472,23 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         <vscode-divider></vscode-divider>
 
                         <div class="section">
+                            <h3>Saved Model Options</h3>
+                            <div id="savedModelOptions" style="font-size: 12px; color: var(--vscode-descriptionForeground);">No saved options</div>
+                        </div>
+
+                        <vscode-divider></vscode-divider>
+
+                        <div class="section">
                             <h3>Load / Unload Models</h3>
                             <vscode-dropdown id="modelSelect">
                                 <vscode-option value="">Fetching models...</vscode-option>
                             </vscode-dropdown>
                             <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
                                 <vscode-text-field id="contextSize" placeholder="Context size eg. 4096" style="flex: 1;"></vscode-text-field>
+                            </div>
+                            <vscode-text-field id="llamacppArgs" placeholder="LlamaCpp args (e.g., --temp 1.0 --top-p 0.95 --min-p 0.01 --top-k 40)" style="margin-bottom: 10px;"></vscode-text-field>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                                <vscode-checkbox id="saveOptions">Save options to recipe_options.json</vscode-checkbox>
                             </div>
                             <div class="button-group">
                                 <vscode-button appearance="primary" onclick="manageModel('load')">Load to VRAM</vscode-button>
@@ -654,7 +672,9 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                     function manageModel(action) {
                         const modelName = document.getElementById('modelSelect').value;
                         const contextSize = document.getElementById('contextSize').value || '4096';
-                        if (modelName) vscode.postMessage({ type: 'manageModelLifecycle', action, modelName, contextSize: parseInt(contextSize) });
+                        const llamacppArgs = document.getElementById('llamacppArgs').value;
+                        const saveOptions = document.getElementById('saveOptions').checked;
+                        if (modelName) vscode.postMessage({ type: 'manageModelLifecycle', action, modelName, contextSize: parseInt(contextSize), llamacppArgs, saveOptions });
                     }
                     function pullModel() {
                         const modelName = document.getElementById('pullInput').value;
@@ -863,8 +883,25 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                                     '</div>'
                                 ).join('');
                                 document.getElementById('loadedModelsList').innerHTML = loadedHtml;
+
+                                // Display saved model options for the first loaded model
+                                const firstModel = msg.allModelsLoaded[0];
+                                if (firstModel && firstModel.recipe_options) {
+                                    const options = firstModel.recipe_options;
+                                    let optionsHtml = '<div style="margin-bottom: 4px;"><strong>Context Size:</strong> ' + (options.ctx_size || 'N/A') + '</div>';
+                                    if (options.llamacpp_args) {
+                                        optionsHtml += '<div style="margin-bottom: 4px;"><strong>LlamaCpp Args:</strong> ' + escapeHtml(options.llamacpp_args) + '</div>';
+                                    }
+                                    if (options.llamacpp_backend) {
+                                        optionsHtml += '<div style="margin-bottom: 4px;"><strong>Backend:</strong> ' + escapeHtml(options.llamacpp_backend) + '</div>';
+                                    }
+                                    document.getElementById('savedModelOptions').innerHTML = optionsHtml;
+                                } else {
+                                    document.getElementById('savedModelOptions').innerText = 'No saved options';
+                                }
                             } else {
                                 document.getElementById('loadedModelsList').innerText = 'No models loaded';
+                                document.getElementById('savedModelOptions').innerText = 'No saved options';
                             }
 
                             const modelOptions = msg.models.map(m => '<vscode-option value="' + escapeHtml(String(m.id)) + '">' + escapeHtml(String(m.id)) + '</vscode-option>').join('') || '<vscode-option value="">No models found</vscode-option>';
@@ -917,6 +954,7 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                             document.getElementById('maxImage').innerText = '-';
                             document.getElementById('maxTts').innerText = '-';
                             document.getElementById('loadedModelsList').innerText = 'No models loaded';
+                            document.getElementById('savedModelOptions').innerText = 'No saved options';
                             document.getElementById('cpuText').innerText = '-';
                             document.getElementById('ramText').innerText = '-';
                             document.getElementById('osVersion').innerText = '-';
