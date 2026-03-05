@@ -25,12 +25,6 @@ This extension contributes the following settings:
 * `lemonade.apiToken`: API Token for authentication.
 * `lemonade.defaultTab`: The default tab to show when the dashboard opens.
 
-## Release Notes
-
-### 0.0.1
-
-Initial release of Lemonade Dashboard.
-
 ## License
 
 This project is licensed under the MIT License.
