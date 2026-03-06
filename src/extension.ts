@@ -171,6 +171,9 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         if (data.llamacppArgs) {
                             loadBody.llamacpp_args = data.llamacppArgs;
                         }
+                        if (data.llamacppBackend) {
+                            loadBody.llamacpp_backend = data.llamacppBackend;
+                        }
                         if (data.saveOptions !== undefined) {
                             loadBody.save_options = data.saveOptions;
                         }
@@ -472,19 +475,13 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         <vscode-divider></vscode-divider>
 
                         <div class="section">
-                            <h3>Saved Model Options</h3>
-                            <div id="savedModelOptions" style="font-size: 12px; color: var(--vscode-descriptionForeground);">No saved options</div>
-                        </div>
-
-                        <vscode-divider></vscode-divider>
-
-                        <div class="section">
                             <h3>Load / Unload Models</h3>
                             <vscode-dropdown id="modelSelect">
                                 <vscode-option value="">Fetching models...</vscode-option>
                             </vscode-dropdown>
                             <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
                                 <vscode-text-field id="contextSize" placeholder="Context size eg. 4096" style="flex: 1;"></vscode-text-field>
+                                <vscode-text-field id="llamacppBackend" placeholder="Backend eg. vulkan" style="flex: 1;"></vscode-text-field>
                             </div>
                             <vscode-text-field id="llamacppArgs" placeholder="LlamaCpp args (e.g., --temp 1.0 --top-p 0.95 --min-p 0.01 --top-k 40)" style="margin-bottom: 10px;"></vscode-text-field>
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
@@ -673,8 +670,9 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                         const modelName = document.getElementById('modelSelect').value;
                         const contextSize = document.getElementById('contextSize').value || '4096';
                         const llamacppArgs = document.getElementById('llamacppArgs').value;
+                        const llamacppBackend = document.getElementById('llamacppBackend').value;
                         const saveOptions = document.getElementById('saveOptions').checked;
-                        if (modelName) vscode.postMessage({ type: 'manageModelLifecycle', action, modelName, contextSize: parseInt(contextSize), llamacppArgs, saveOptions });
+                        if (modelName) vscode.postMessage({ type: 'manageModelLifecycle', action, modelName, contextSize: parseInt(contextSize), llamacppArgs, llamacppBackend, saveOptions });
                     }
                     function pullModel() {
                         const modelName = document.getElementById('pullInput').value;
@@ -883,30 +881,55 @@ class LemonadeDashboardProvider implements vscode.WebviewViewProvider {
                                     '</div>'
                                 ).join('');
                                 document.getElementById('loadedModelsList').innerHTML = loadedHtml;
-
-                                // Display saved model options for the first loaded model
-                                const firstModel = msg.allModelsLoaded[0];
-                                if (firstModel && firstModel.recipe_options) {
-                                    const options = firstModel.recipe_options;
-                                    let optionsHtml = '<div style="margin-bottom: 4px;"><strong>Context Size:</strong> ' + (options.ctx_size || 'N/A') + '</div>';
-                                    if (options.llamacpp_args) {
-                                        optionsHtml += '<div style="margin-bottom: 4px;"><strong>LlamaCpp Args:</strong> ' + escapeHtml(options.llamacpp_args) + '</div>';
-                                    }
-                                    if (options.llamacpp_backend) {
-                                        optionsHtml += '<div style="margin-bottom: 4px;"><strong>Backend:</strong> ' + escapeHtml(options.llamacpp_backend) + '</div>';
-                                    }
-                                    document.getElementById('savedModelOptions').innerHTML = optionsHtml;
-                                } else {
-                                    document.getElementById('savedModelOptions').innerText = 'No saved options';
-                                }
                             } else {
                                 document.getElementById('loadedModelsList').innerText = 'No models loaded';
-                                document.getElementById('savedModelOptions').innerText = 'No saved options';
                             }
 
                             const modelOptions = msg.models.map(m => '<vscode-option value="' + escapeHtml(String(m.id)) + '">' + escapeHtml(String(m.id)) + '</vscode-option>').join('') || '<vscode-option value="">No models found</vscode-option>';
                             document.getElementById('modelSelect').innerHTML = modelOptions;
                             document.getElementById('deleteSelect').innerHTML = modelOptions;
+
+                            // Store model data for populating saved options on selection
+                            window.modelDataMap = {};
+                            msg.models.forEach(m => {
+                                if (m.recipe_options) {
+                                    window.modelDataMap[m.id] = m.recipe_options;
+                                }
+                            });
+
+                            // Update saved model options when model is selected
+                            const modelSelect = document.getElementById('modelSelect');
+                            modelSelect.addEventListener('change', (e) => {
+                                const selectedModelId = e.target.value;
+                                const contextSizeField = document.getElementById('contextSize');
+                                const llamacppArgsField = document.getElementById('llamacppArgs');
+                                const llamacppBackendField = document.getElementById('llamacppBackend');
+                                
+                                if (selectedModelId && window.modelDataMap[selectedModelId]) {
+                                    const options = window.modelDataMap[selectedModelId];
+                                    
+                                    // Populate text fields with saved values
+                                    if (options.ctx_size) {
+                                        contextSizeField.value = String(options.ctx_size);
+                                    } else {
+                                        contextSizeField.value = '';
+                                    }
+                                    if (options.llamacpp_args) {
+                                        llamacppArgsField.value = options.llamacpp_args;
+                                    } else {
+                                        llamacppArgsField.value = '';
+                                    }
+                                    if (options.llamacpp_backend) {
+                                        llamacppBackendField.value = options.llamacpp_backend;
+                                    } else {
+                                        llamacppBackendField.value = '';
+                                    }
+                                } else {
+                                    contextSizeField.value = '';
+                                    llamacppArgsField.value = '';
+                                    llamacppBackendField.value = '';
+                                }
+                            });
 
                             if (msg.sysInfo) {
                                 document.getElementById('cpuText').innerText = msg.sysInfo['Processor'] || 'Unknown CPU';
