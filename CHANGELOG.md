@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### [0.0.7](https://github.com/james-martinez/lemonade-dashboard/compare/v0.0.6...v0.0.7) (2026-03-07)
 
+#### Bug Fixes
+
+* **security:** escape GitHub release version and model metadata in webview to prevent XSS ([bcea870](https://github.com/james-martinez/lemonade-dashboard/commit/bcea870))
+* Fix XSS vulnerability in extension webview by escaping model properties ([f7e16a2](https://github.com/james-martinez/lemonade-dashboard/commit/f7e16a2))
+* Fix chat completions API endpoint path ([b45f257](https://github.com/james-martinez/lemonade-dashboard/commit/b45f257))
+
+#### Features
+
+* Add unit tests for getLemonadeConfig ([b1e7353](https://github.com/james-martinez/lemonade-dashboard/commit/b1e7353))
+
+#### Performance
+
+* Cache redundant GitHub API fetch in polling loop ([856bf27](https://github.com/james-martinez/lemonade-dashboard/commit/856bf27))
+
+#### Chores
+
+* Implement missing client-side validation in webview ([7929361](https://github.com/james-martinez/lemonade-dashboard/commit/7929361))
+* Remove empty deactivate function ([9fc3c7f](https://github.com/james-martinez/lemonade-dashboard/commit/9fc3c7f))
+
 ### [0.0.6](https://github.com/james-martinez/lemonade-dashboard/compare/v0.0.5...v0.0.6) (2026-03-06)
 
 
