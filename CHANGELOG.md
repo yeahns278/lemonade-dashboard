@@ -50,7 +50,7 @@ All notable changes to this project will be documented in this file. See [standa
 
 * update versioning ([56a5dab](https://github.com/james-martinez/lemonade-dashboard/commit/56a5dab))
 
-## [0.0.2] - 2026-03-04
+### [0.0.2](https://github.com/james-martinez/lemonade-dashboard/compare/v0.0.1...v0.0.2) (2026-03-04)
 
 ### Added
 - GitHub Actions workflow for automated publishing on tags and GitHub Release creation.
@@ -69,6 +69,6 @@ All notable changes to this project will be documented in this file. See [standa
 - Unused test files and configurations (`eslint.config.mjs`, `.vscode-test.mjs`, `src/test/extension.test.ts`).
 - Temporary scripts and assets (`convert_icon.js`, `media/lemon.svg`).
 
-## [0.0.1] - 2026-03-03
+### [0.0.1](https://github.com/james-martinez/lemonade-dashboard/compare/v0.0.0...v0.0.1) (2026-03-03)
 
 - Initial release
